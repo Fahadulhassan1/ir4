@@ -1,5 +1,5 @@
-# Contains all retrieval models.
-
+import hashlib
+from bitarray import bitarray
 from abc import ABC, abstractmethod
 
 from document import Document
@@ -112,7 +112,7 @@ class InvertedListBooleanModel(RetrievalModel):
 
         # Remove empty strings and whitespace-only strings
         terms = [term for term in terms if term.strip()]
-
+        
         if stemming:
             terms = [porter.stem_term(term) if term.isalnum() else term for term in terms]
 
@@ -136,9 +136,77 @@ class InvertedListBooleanModel(RetrievalModel):
         return 'Boolean Model (Inverted Index)'
 
 class SignatureBasedBooleanModel(RetrievalModel):
-    # TODO: Implement all abstract methods. (PR04)
-    def __init__(self):
-        raise NotImplementedError()  # TODO: Remove this line and implement the function.
+    def __init__(self, F=64, D=4):
+
+        self.F = F
+        self.D = D
+        self.documents = []
+
+    def _hash_function(self, term: str) -> int:
+        """
+        Hash function to convert a term into an integer.
+        """
+        return int(hashlib.md5(term.encode('utf-8')).hexdigest(), 16)
+
+    def _create_signature(self, terms):
+        """
+        Creates a signature bitarray for the given terms.
+        """
+        signature = bitarray(self.F)
+        signature.setall(0)
+
+        for term in terms:
+            hash_value = self._hash_function(term)
+            for i in range(self.D):
+                pos = (hash_value + i) % self.F
+                signature[pos] = 1
+        return signature
+
+    def document_to_representation(
+        self, document: Document, stopword_filtering=False, stemming=False
+    ):
+        terms = document.terms
+        terms = [term.lower() for term in terms]  # Convert all terms to lowercase
+
+        if stopword_filtering:
+            terms = [term for term in terms if term not in document.filtered_terms]
+
+        signature = self._create_signature(terms)
+        self.documents.append((document, signature))
+        return signature
+
+    def query_to_representation(self, query: str):
+        terms = query.lower().split()
+        signature = self._create_signature(terms)
+        return signature
+
+    def match(self, document_representation, query_representation) -> float:
+        """
+        Matches the query and document presentation based on signature.
+        Returns 1.0 if the query signature is a subset of the document signature, 0.0 otherwise.
+        """
+        if (document_representation & query_representation) == query_representation:
+            return 1.0
+        return 0.0
+
+    def search(self, query: str, mode='and') -> list:
+        """
+        Search for documents matching the query.
+        Supports 'and' and 'or' modes.
+        """
+        query_representation = self.query_to_representation(query)
+        results = []
+
+        if mode == 'and':
+            for document, doc_representation in self.documents:
+                if self.match(doc_representation, query_representation):
+                    results.append(document)
+        elif mode == 'or':
+            for document, doc_representation in self.documents:
+                if (doc_representation & query_representation).count() > 0:
+                    results.append(document)
+
+        return results
 
     def __str__(self):
         return "Boolean Model (Signatures)"

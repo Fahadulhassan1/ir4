@@ -395,19 +395,57 @@ class InformationRetrievalSystem(object):
         # TODO: Implement this function (PR04)
         raise NotImplementedError("To be implemented in PR04")
 
-    def signature_search(
-        self, query: str, stemming: bool, stop_word_filtering: bool
-    ) -> list:
+    def signature_search(self, query: str, stemming: bool, stop_word_filtering: bool) -> list:
         """
         Fast Boolean query search using signatures for quicker processing.
         :param query: Query string
         :param stemming: Controls, whether stemming is used
         :param stop_word_filtering: Controls, whether stop-words are ignored in the search
-        :return: List of tuples, where the first element is the relevance score and the second the corresponding
-        document
+        :return: List of tuples, where the first element is the relevance score and the second the corresponding document
         """
-        # TODO: Implement this function (PR04)
-        raise NotImplementedError("To be implemented in PR04")
+         # Tokenize and optionally filter stopwords from the query
+        def process_terms(terms):
+            if stop_word_filtering:
+                terms = [term for term in terms if term not in self.stop_word_list]
+            if stemming:
+                terms = [porter.stem_term(term) for term in terms]
+            return terms
+    
+    # Parse the query
+        query_parts = re.split(r'\s+(AND|OR)\s+', query.upper())
+        term_signatures = []
+        operators = []
+
+        for part in query_parts:
+            if part in {'AND', 'OR'}:
+                operators.append(part)
+            else:
+                terms = process_terms(part.lower().split())
+                term_signatures.append(self.model._create_signature(terms))
+        
+        if not term_signatures:
+            return []
+
+    # Combine the term signatures according to the operators
+        combined_signature = term_signatures[0]
+        for i, operator in enumerate(operators):
+            if operator == 'AND':
+                combined_signature &= term_signatures[i + 1]
+            elif operator == 'OR':
+                combined_signature |= term_signatures[i + 1]
+
+    # Ensure that documents are already processed and their signatures are available
+        if not self.model.documents:
+            for document in self.collection:
+                self.model.document_to_representation(document, stop_word_filtering, stemming)
+    
+    # Search for matching documents
+        results = []
+        for document, doc_signature in self.model.documents:
+            if self.model.match(doc_signature, combined_signature):
+                results.append((1.0, document))  # Assuming a match score of 1.0 for simplicity
+    
+        return results[:self.output_k]
     def calculate_precision(self, result_list: list[tuple]) -> float:
         try:
             with open(os.path.join(RAW_DATA_PATH, "ground_truth.txt"), "r") as f:
