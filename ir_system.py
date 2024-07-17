@@ -393,7 +393,8 @@ class InformationRetrievalSystem(object):
         document
         """
         # TODO: Implement this function (PR04)
-        raise NotImplementedError("To be implemented in PR04")
+        return self.model.buckley_lewit_search(query, stemming, stop_word_filtering , self.output_k)
+
 
     def signature_search(self, query: str, stemming: bool, stop_word_filtering: bool) -> list:
         """
