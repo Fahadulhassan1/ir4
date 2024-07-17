@@ -9,6 +9,8 @@ from collections import defaultdict
 from document import Document
 from porter import stem_term
 from math import log
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
 import porter
 class RetrievalModel(ABC):
     @abstractmethod
@@ -219,83 +221,32 @@ class SignatureBasedBooleanModel(RetrievalModel):
 
 class VectorSpaceModel(RetrievalModel):
     def __init__(self):
-        self.inverted_index = defaultdict(list)
-        self.document_vectors = {}
-        self.document_lengths = {}
-        self.doc_count = 0
-        self.collection = []  # To keep track of the document collection
+        self.vectorizer = TfidfVectorizer()
+        self.document_vectors = None
+        self.documents = None
 
-    def document_to_representation(self, document: Document, stopword_filtering=False, stemming=False):
-        terms = document.terms
-        terms = [term.lower() for term in terms]
+    def build_inverted_list(self, docs):
+        self.documents = [self._doc_representation(doc) for doc in docs]
+        self.document_vectors = self.vectorizer.fit_transform(self.documents)
 
-        if stopword_filtering:
-            terms = [term for term in terms if term not in document.filtered_terms]
+    def _doc_representation(self, doc:Document, filter_stopwords=False, apply_stemming=False):
+        tokens = doc.raw_text.split()
+        if filter_stopwords:
+            tokens = [t for t in tokens if t not in doc.filtered_terms]
+        if apply_stemming:
+            tokens = [stem_term(t) for t in tokens]
+        return ' '.join(tokens)
 
-        if stemming:
-            terms = [stem_term(term) for term in terms]
+    def _query_representation(self, query, apply_stemming=False):
+        tokens = query.split()
+        if apply_stemming:
+            tokens = [stem_term(t) for t in tokens]
+        return ' '.join(tokens)
 
-        term_freq = defaultdict(int)
-        for term in terms:
-            term_freq[term] += 1
-
-        self.doc_count += 1
-        doc_id = self.doc_count
-        self.collection.append(document)
-
-        for term, freq in term_freq.items():
-            self.inverted_index[term].append((doc_id, freq))
-
-        self.document_vectors[doc_id] = term_freq
-        self.document_lengths[doc_id] = np.sqrt(sum(freq**2 for freq in term_freq.values()))
-        return term_freq
-
-    def query_to_representation(self, query: str):
-        terms = query.lower().split()
-        term_freq = defaultdict(int)
-        for term in terms:
-            term_freq[term] += 1
-        return term_freq
-
-    def match(self, document_representation, query_representation) -> float:
-        raise NotImplementedError("Match is not used directly in this model.")
-
-    def _compute_tf_idf(self, term_freq, term, N):
-        tf = term_freq[term]
-        df = len(self.inverted_index[term])
-        idf = log(N / df) if df > 0 else 0
-        return tf * idf
-
-    def buckley_lewit_search(self, query: str, stemming, stop_word_filtering , output_k):
-        query_terms = query.lower().split()
-
-        if stop_word_filtering:
-            query_terms = [term for term in query_terms if term not in self.stop_word_list]
-
-        if stemming:
-            query_terms = [stem_term(term) for term in query_terms]
-
-        query_vector = self.query_to_representation(query)
-        query_weights = {}
-        N = self.doc_count
-
-        for term in query_terms:
-            if term in self.inverted_index:
-                query_weights[term] = self._compute_tf_idf(query_vector, term, N)
-
-        scores = defaultdict(float)
-        for term, weight in query_weights.items():
-            for doc_id, tf in self.inverted_index[term]:
-                if term in self.document_vectors[doc_id]:
-                    scores[doc_id] += weight * self._compute_tf_idf(self.document_vectors[doc_id], term, N)
-
-        for doc_id in scores:
-            if doc_id in self.document_lengths:
-                scores[doc_id] /= self.document_lengths[doc_id]
-
-        ranked_documents = sorted(scores.items(), key=lambda item: item[1], reverse=True)
-        results = [(score, self.collection[doc_id - 1]) for doc_id, score in ranked_documents[:output_k]]
-        return results
+    def match(self, doc_rep, query_rep):
+        q_vector = self.vectorizer.transform([query_rep])
+        d_vector = self.vectorizer.transform([doc_rep])
+        return cosine_similarity(q_vector, d_vector).flatten()[0]
 
     def __str__(self):
         return "Vector Space Model"

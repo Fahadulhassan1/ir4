@@ -25,6 +25,7 @@ import models
 import porter
 from document import Document
 import re
+from sklearn.metrics.pairwise import cosine_similarity
 
 import time
 
@@ -392,8 +393,18 @@ class InformationRetrievalSystem(object):
         :return: List of tuples, where the first element is the relevance score and the second the corresponding
         document
         """
-        # TODO: Implement this function (PR04)
-        return self.model.buckley_lewit_search(query, stemming, stop_word_filtering , self.output_k)
+        transformed_query = self.model.query_to_representation(query, stemming)
+
+        vectorized_query = self.model.vectorizer.transform([transformed_query])
+
+        similarity_scores = cosine_similarity(vectorized_query, self.model.document_vectors).flatten()
+
+        matching_documents = [(score, self.collection[index]) for index, score in enumerate(similarity_scores) if score > 0]
+
+        matching_documents.sort(key=lambda pair: pair[0], reverse=True)
+
+        return matching_documents
+
 
 
     def signature_search(self, query: str, stemming: bool, stop_word_filtering: bool) -> list:
