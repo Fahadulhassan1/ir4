@@ -290,17 +290,59 @@ class InformationRetrievalSystem(object):
         :return: List of tuples, where the first element is the relevance score and the second the corresponding
         document
         """
-        if not hasattr(self, 'inverted_index'):
-            self.build_inverted_index(stemming, stop_word_filtering)
-        
-        # Parse and process the query
-        results = self.process_boolean_query(query)
-        
-        # Retrieve the actual documents
-        result_documents = [(1, self.collection[doc_id - 1]) for doc_id in results]
-        
-        return result_documents
-    
+        if not self.model.is_ready:
+
+            self.model.build_inverted_list(self.collection, stop_word_filtering, stemming)
+
+        query_terms = self.model.query_to_representation(query, stemming)
+        operand_stack = []
+        operator_stack = []
+
+        def execute_operator(operator, left_set, right_set):
+            if operator == '&':
+                return left_set & right_set
+            elif operator == '|':
+                return left_set | right_set
+            elif operator == '-':
+                return left_set - right_set
+            else:
+                raise ValueError(f"Invalid operator: {operator}")
+
+        for token in query_terms:
+            if token in {'&', '|', '-'}:
+                operator_stack.append(token)
+            elif token == '(':
+                operator_stack.append(token)
+            elif token == ')':
+                while operator_stack and operator_stack[-1] != '(':
+                    right_set = operand_stack.pop()
+                    left_set = operand_stack.pop()
+                    operator = operator_stack.pop()
+                    operand_stack.append(execute_operator(operator, left_set, right_set))
+                if operator_stack and operator_stack[-1] == '(':
+                    operator_stack.pop()  # Remove '('
+            else:
+                operand_stack.append(self.model.inverted_index.get(token, set()))
+
+            while len(operand_stack) >= 2 and operator_stack and operator_stack[-1] not in {'(', ')'}:
+                right_set = operand_stack.pop()
+                left_set = operand_stack.pop()
+                operator = operator_stack.pop()
+                operand_stack.append(execute_operator(operator, left_set, right_set))
+
+        while len(operand_stack) >= 2 and operator_stack:
+            right_set = operand_stack.pop()
+            left_set = operand_stack.pop()
+            operator = operator_stack.pop()
+            operand_stack.append(execute_operator(operator, left_set, right_set))
+
+        if len(operand_stack) != 1:
+            raise ValueError("Malformed query: Mismatch between operators and operands")
+
+        final_result_set = operand_stack[0] if operand_stack else set()
+        search_results = [(1, self.collection[doc_id]) for doc_id in final_result_set]
+        return search_results
+
     def build_inverted_index(self, stemming: bool, stop_word_filtering: bool):
         self.inverted_index = {}
         

@@ -3,7 +3,7 @@
 from abc import ABC, abstractmethod
 
 from document import Document
-
+import re
 import porter
 class RetrievalModel(ABC):
     @abstractmethod
@@ -90,30 +90,50 @@ class LinearBooleanModel(RetrievalModel):
 class InvertedListBooleanModel(RetrievalModel):
     def __init__(self):
         self.inverted_index = {}
+        self.docs = []
+        self.is_ready = False
 
-    def document_to_representation(
-        self, document: Document, stopword_filtering=False, stemming=False
-    ):
-        terms = document.terms
-        terms = [term.lower() for term in terms]  # Convert all terms to lowercase
+    def document_to_representation(self, document: Document, stopword_filtering=False, stemming=False):
+        terms = set()
 
         if stopword_filtering:
-            terms = [term for term in terms if term not in document.filtered_terms]
+            terms.update(term.lower() for term in document.filtered_terms)
+        else:
+            terms.update(term.lower() for term in document.raw_text.split() if term)
 
         if stemming:
-            terms = [porter.stem_term(term) for term in terms]
+            terms = {porter.stem_term(term) for term in terms}
 
         return terms
 
-    def query_to_representation(self, query: str):
-        return query.lower().split()
+    def query_to_representation(self, query: str, stemming=False):
+    # Split the query into terms and operators
+        terms = re.split(r'(\W)', query.lower())
 
-    def match(self, document_representation, query_representation) -> float:
-        raise NotImplementedError("Match is not used directly in this model.")
+        # Remove empty strings and whitespace-only strings
+        terms = [term for term in terms if term.strip()]
+
+        if stemming:
+            terms = [porter.stem_term(term) if term.isalnum() else term for term in terms]
+
+        return terms
+
+    def match(self, document_representation, query_representation):
+        return all(term in document_representation for term in query_representation)
+
+    def build_inverted_list(self, documents, stopword_filtering=False, stemming=False):
+        self.docs = documents
+        self.inverted_index = {}
+        for doc_id, document in enumerate(documents):
+            terms = self.document_to_representation(document, stopword_filtering, stemming)
+            for term in terms:
+                if term not in self.inverted_index:
+                    self.inverted_index[term] = set()
+                self.inverted_index[term].add(doc_id)
+        self.is_ready = True
 
     def __str__(self):
-        return "Boolean Model (Inverted List)"
-
+        return 'Boolean Model (Inverted Index)'
 
 class SignatureBasedBooleanModel(RetrievalModel):
     # TODO: Implement all abstract methods. (PR04)
