@@ -401,7 +401,7 @@ class InformationRetrievalSystem(object):
 
         matching_documents = [(score, self.collection[index]) for index, score in enumerate(similarity_scores) if score > 0]
 
-        matching_documents.sort(key=lambda pair: pair[0], reverse=True)
+        matching_documents.sort(reverse=True, key=lambda x: x[0])
 
         return matching_documents
 

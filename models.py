@@ -226,20 +226,20 @@ class VectorSpaceModel(RetrievalModel):
         self.documents = None
 
     def build_inverted_list(self, docs):
-        self.documents = [self._doc_representation(doc) for doc in docs]
+        self.documents = [self.document_to_representation(doc) for doc in docs]
         self.document_vectors = self.vectorizer.fit_transform(self.documents)
 
-    def _doc_representation(self, doc:Document, filter_stopwords=False, apply_stemming=False):
-        tokens = doc.raw_text.split()
-        if filter_stopwords:
-            tokens = [t for t in tokens if t not in doc.filtered_terms]
-        if apply_stemming:
+    def document_to_representation(self, document: Document, stopword_filtering=False, stemming=False):
+        tokens = document.raw_text.split()
+        if stopword_filtering:
+            tokens = [t for t in tokens if t not in document.filtered_terms]
+        if stemming:
             tokens = [stem_term(t) for t in tokens]
         return ' '.join(tokens)
 
-    def _query_representation(self, query, apply_stemming=False):
+    def query_to_representation(self, query, stemming=False):
         tokens = query.split()
-        if apply_stemming:
+        if stemming:
             tokens = [stem_term(t) for t in tokens]
         return ' '.join(tokens)
 
