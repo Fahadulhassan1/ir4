@@ -1,21 +1,3 @@
-# --------------------------------------------------------------------------------
-# Information Retrieval SS2024 - Practical Assignment Template
-# --------------------------------------------------------------------------------
-# This Python template is provided as a starting point for your assignments PR02-04.
-# It serves as a base for a very rudimentary text-based information retrieval system.
-#
-# Please keep all instructions from the task description in mind.
-# Especially, avoid changing the base structure, function or class names or the
-# underlying program logic. This is necessary to run automated tests on your code.
-#
-# Instructions:
-# 1. Read through the whole template to understand the expected workflow and outputs.
-# 2. Implement the required functions and classes, filling in your code where indicated.
-# 3. Test your code to ensure functionality and correct handling of edge cases.
-#
-# Good luck!
-
-
 import json
 import os
 
@@ -94,7 +76,12 @@ class InformationRetrievalSystem(object):
             print(f"{CHOICE_SET_MODEL} - Set model")
             print(f"{CHOICE_SHOW_DOCUMENT} - Show a specific document")
             print(f"{CHOICE_EXIT} - Exit")
-            action_choice = int(input("Enter choice: "))
+            
+            try:
+                action_choice = int(input("Enter choice: "))
+            except ValueError:
+                print("Invalid choice. Please enter a number.")
+                continue
 
             if action_choice == CHOICE_LIST:
                 # List documents in CLI.
@@ -160,6 +147,7 @@ class InformationRetrievalSystem(object):
 
                 processing_time = (end_time - start_time) * 1000  # Convert to milliseconds
                 print(f'Query processing time: {processing_time:.2f} ms')
+
             elif action_choice == CHOICE_EXTRACT:
                 # Extract document collection from text file.
 
@@ -344,44 +332,6 @@ class InformationRetrievalSystem(object):
         search_results = [(1, self.collection[doc_id]) for doc_id in final_result_set]
         return search_results
 
-    def build_inverted_index(self, stemming: bool, stop_word_filtering: bool):
-        self.inverted_index = {}
-        
-        for doc_id, document in enumerate(self.collection, start=1):
-            terms = self.model.document_to_representation(document , stop_word_filtering, stemming)
-            for term in terms:
-                if term not in self.inverted_index:
-                    self.inverted_index[term] = set()
-                self.inverted_index[term].add(doc_id)
-    
-    def process_boolean_query(self, query: str) -> set:
-        terms = self.parse_query(query)
-        result_set = None
-        
-        for term, operator in terms:
-            if operator == "&":
-                result_set = result_set & self.inverted_index.get(term, set()) if result_set is not None else self.inverted_index.get(term, set())
-            elif operator == "|":
-                result_set = result_set | self.inverted_index.get(term, set()) if result_set is not None else self.inverted_index.get(term, set())
-            elif operator == "-":
-                result_set = result_set - self.inverted_index.get(term, set()) if result_set is not None else set(self.collection.keys()) - self.inverted_index.get(term, set())
-            else:
-                result_set = self.inverted_index.get(term, set()) if result_set is None else result_set
-                
-        return result_set if result_set is not None else set()
-
-    def parse_query(self, query: str) -> list:
-        terms = re.findall(r'(-?\w+)([&|]*)', query)
-        parsed_terms = []
-        
-        for term, operator in terms:
-            if term.startswith('-'):
-                parsed_terms.append((term[1:], "-"))
-            else:
-                parsed_terms.append((term, "&" if not operator else operator))
-        
-        return parsed_terms
-
     def buckley_lewit_search(
         self, query: str, stemming: bool, stop_word_filtering: bool
     ) -> list:
@@ -393,19 +343,21 @@ class InformationRetrievalSystem(object):
         :return: List of tuples, where the first element is the relevance score and the second the corresponding
         document
         """
+
+        # Ensure that the vectorizer is fitted
+        if not hasattr(self.model.vectorizer, 'vocabulary_'):
+            documents_text = [d.raw_text for d in self.collection]
+            self.model.vectorizer.fit(documents_text)
+            self.model.document_vectors = self.model.vectorizer.transform(documents_text)
+
         transformed_query = self.model.query_to_representation(query, stemming)
-
         vectorized_query = self.model.vectorizer.transform([transformed_query])
-
         similarity_scores = cosine_similarity(vectorized_query, self.model.document_vectors).flatten()
 
         matching_documents = [(score, self.collection[index]) for index, score in enumerate(similarity_scores) if score > 0]
-
         matching_documents.sort(reverse=True, key=lambda x: x[0])
 
         return matching_documents
-
-
 
     def signature_search(self, query: str, stemming: bool, stop_word_filtering: bool) -> list:
         """
@@ -423,7 +375,7 @@ class InformationRetrievalSystem(object):
                 terms = [porter.stem_term(term) for term in terms]
             return terms
     
-    # Parse the query
+        # Parse the query
         query_parts = re.split(r'\s+(AND|OR)\s+', query.upper())
         term_signatures = []
         operators = []
@@ -438,7 +390,7 @@ class InformationRetrievalSystem(object):
         if not term_signatures:
             return []
 
-    # Combine the term signatures according to the operators
+        # Combine the term signatures according to the operators
         combined_signature = term_signatures[0]
         for i, operator in enumerate(operators):
             if operator == 'AND':
@@ -446,18 +398,19 @@ class InformationRetrievalSystem(object):
             elif operator == 'OR':
                 combined_signature |= term_signatures[i + 1]
 
-    # Ensure that documents are already processed and their signatures are available
+        # Ensure that documents are already processed and their signatures are available
         if not self.model.documents:
             for document in self.collection:
                 self.model.document_to_representation(document, stop_word_filtering, stemming)
     
-    # Search for matching documents
+        # Search for matching documents
         results = []
         for document, doc_signature in self.model.documents:
             if self.model.match(doc_signature, combined_signature):
                 results.append((1.0, document))  # Assuming a match score of 1.0 for simplicity
     
         return results[:self.output_k]
+
     def calculate_precision(self, result_list: list[tuple]) -> float:
         try:
             with open(os.path.join(RAW_DATA_PATH, "ground_truth.txt"), "r") as f:
@@ -479,13 +432,13 @@ class InformationRetrievalSystem(object):
             retrieved_docs = {doc.document_id for _, doc in result_list}
             true_positives = len(relevant_docs.intersection(retrieved_docs))
 
-            return true_positives / len(retrieved_docs) if retrieved_docs else -1
+            return true_positives / len(retrieved_docs) if retrieved_docs else 0
 
         except FileNotFoundError:
-            return -1
+            return 0
         except Exception as e:
             print(f"An error occurred while calculating precision: {e}")
-            return -1
+            return 0
 
     def calculate_recall(self, result_list: list[tuple]) -> float:
         try:
@@ -508,13 +461,13 @@ class InformationRetrievalSystem(object):
             retrieved_docs = {doc.document_id for _, doc in result_list}
             true_positives = len(relevant_docs.intersection(retrieved_docs))
 
-            return true_positives / len(relevant_docs) if relevant_docs else -1
+            return true_positives / len(relevant_docs) if relevant_docs else 0
 
         except FileNotFoundError:
-            return -1
+            return 0
         except Exception as e:
             print(f"An error occurred while calculating recall: {e}")
-            return -1
+            return 0
     
 
 if __name__ == "__main__":
